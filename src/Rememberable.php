@@ -27,6 +27,10 @@ trait Rememberable
             $builder->cacheTags($this->rememberCacheTag);
         }
 
+        if (method_exists($this,'rememberDynamicTagsCallback') && is_callable([$this,'rememberDynamicTagsCallback'])) {
+            $builder->setDynamicTagsCallback([$this,'rememberDynamicTagsCallback']);
+        }
+
         if (isset($this->rememberCachePrefix)) {
             $builder->prefix($this->rememberCachePrefix);
         }

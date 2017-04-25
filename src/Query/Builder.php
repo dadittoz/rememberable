@@ -28,6 +28,13 @@ class Builder extends \Illuminate\Database\Query\Builder
     protected $cacheTags;
 
     /**
+     * Callback to dynamically generate tags based on model fields
+     *
+     * @var callable
+     */
+    protected $dynamicTagsCallback;
+
+    /**
      * The cache driver to be used.
      *
      * @var string
@@ -73,18 +80,35 @@ class Builder extends \Illuminate\Database\Query\Builder
         // that are used on this query, providing great convenience when caching.
         list($key, $minutes) = $this->getCacheInfo();
 
-        $cache = $this->getCache();
-
         $callback = $this->getCacheCallback($columns);
+        $dynamicTagsCallback = $this->dynamicTagsCallback;
+
+        $cache = Cache::tags($this->cacheTags);
+        $value = $cache->get($key);
+
+        if(!is_null($value)) return $value;
+        $value = $callback();
+
+        if(isset($dynamicTagsCallback)) {
+            $tags = $dynamicTagsCallback($value);
+            // Make sure cacheTags is a proper array, so array_merge won't fail
+            if(is_string($this->cacheTags)) $this->cacheTags = [$this->cacheTags];
+            if(is_null($this->cacheTags)) $this->cacheTags = [];
+
+            if(is_array($tags)) {
+                $cache = Cache::tags(array_merge($this->cacheTags, $tags));
+            }
+        }
 
         // If the "minutes" value is less than zero, we will use that as the indicator
         // that the value should be remembered indefinitely and if we have minutes
         // we will use the typical remember function here.
         if ($minutes < 0) {
-            return $cache->rememberForever($key, $callback);
+            $minutes = -1;
         }
+        $cache->put($key, $value, $minutes);
 
-        return $cache->remember($key, $minutes, $callback);
+        return $value;
     }
 
     /**
@@ -135,6 +159,20 @@ class Builder extends \Illuminate\Database\Query\Builder
     }
 
     /**
+     * Sets the Closure callback to be called when results are fetched from database.
+     * Should return an array of tags to be merged to current cache tags.
+     *
+     * @param  callable  $dynamicTagsCallback
+     * @return $this
+     */
+    public function setDynamicTagsCallback(callable $dynamicTagsCallback)
+    {
+        $this->dynamicTagsCallback = $dynamicTagsCallback;
+
+        return $this;
+    }
+
+    /**
      * Indicate that the results, if cached, should use the given cache tags.
      *
      * @param  array|mixed  $cacheTags
@@ -158,18 +196,6 @@ class Builder extends \Illuminate\Database\Query\Builder
         $this->cacheDriver = $cacheDriver;
 
         return $this;
-    }
-
-    /**
-     * Get the cache object with tags assigned, if applicable.
-     *
-     * @return \Illuminate\Cache\CacheManager
-     */
-    protected function getCache()
-    {
-        $cache = Cache::driver($this->cacheDriver);
-
-        return $this->cacheTags ? $cache->tags($this->cacheTags) : $cache;
     }
 
     /**
